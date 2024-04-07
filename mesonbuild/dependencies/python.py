@@ -201,6 +201,16 @@ class PythonSystemDependency(SystemDependency, _PythonDependencyBase):
         SystemDependency.__init__(self, name, environment, kwargs)
         _PythonDependencyBase.__init__(self, installation, kwargs.get('embed', False))
 
+        # Set flags and library suffix depending on if we have a debug build
+        buildtype = self.env.coredata.get_option(mesonlib.OptionKey('buildtype'))
+        assert isinstance(buildtype, str)
+        self.debug_build = (buildtype == 'debug')
+        if self.debug_build:
+            self.library_suffix = '_d'
+            self.compile_args += ['-D_DEBUG', '-MDd']
+        else:
+            self.library_suffix = ''
+
         # match pkg-config behavior
         if self.link_libpython:
             # link args
@@ -236,9 +246,7 @@ class PythonSystemDependency(SystemDependency, _PythonDependencyBase):
             libdir = os.path.join(self.variables.get('base'), 'bin')
             libdirs = [libdir]
         else:
-            libname = f'python{self.version}'
-            if 'DEBUG_EXT' in self.variables:
-                libname += self.variables['DEBUG_EXT']
+            libname = f'python{self.version}{self.library_suffix}'
             if 'ABIFLAGS' in self.variables:
                 libname += self.variables['ABIFLAGS']
             libdirs = []
@@ -286,18 +294,16 @@ class PythonSystemDependency(SystemDependency, _PythonDependencyBase):
                     else:
                         libpath = Path(f'python{vernum}.dll')
                 else:
-                    libpath = Path('libs') / f'python{vernum}.lib'
+                    libpath = Path('libs') / f'python{vernum}{self.library_suffix}.lib'
                     # For a debug build, pyconfig.h may force linking with
                     # pythonX_d.lib (see meson#10776). This cannot be avoided
                     # and won't work unless we also have a debug build of
                     # Python itself (except with pybind11, which has an ugly
                     # hack to work around this) - so emit a warning to explain
                     # the cause of the expected link error.
-                    buildtype = self.env.coredata.get_option(mesonlib.OptionKey('buildtype'))
-                    assert isinstance(buildtype, str)
                     debug = self.env.coredata.get_option(mesonlib.OptionKey('debug'))
                     # `debugoptimized` buildtype may not set debug=True currently, see gh-11645
-                    is_debug_build = debug or buildtype == 'debug'
+                    is_debug_build = debug or self.debug_build
                     vscrt_debug = False
                     if mesonlib.OptionKey('b_vscrt') in self.env.coredata.options:
                         vscrt = self.env.coredata.options[mesonlib.OptionKey('b_vscrt')].value
